@@ -14,11 +14,9 @@
 #define INDEX_Y (blockIdx.y * blockDim.y + threadIdx.y)
 #define INDEX(c) (INDEX_Y * c + INDEX_X)
 
-#define CALC_IC(indexes) (indexes[X][END] - indexes[X][START] + 2)
-#define CALC_JC(indexes) (indexes[Y][END] - indexes[Y][START] + 2)
-
 #define THREAD_IDX (threadIdx.y * BLOCK_SIZE_X + threadIdx.x)
 
+// left part of equation -Laplace u
 #define left_part(P, i, j)                                                 \
     ((-(P[ic*(j)+i+1]-P[ic*(j)+i])/hx+(P[ic*(j)+i]-P[ic*(j)+i-1])/hx)/hx+  \
     (-(P[ic*(j+1)+i]-P[ic*(j)+i])/hy+(P[ic*(j)+i]-P[ic*(j-1)+i])/hy)/hy)

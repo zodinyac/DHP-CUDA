@@ -10,9 +10,9 @@ extern "C" {
     void cuda_init(int rank);
     void cuda_finalize();
     
-    void *cuda_create_load_array_to_device(array(double) array, int (*indexes)[D], int mesh_n[D]);
-    void cuda_load_array_to_device(void *cuda_array, array(double) array, int (*indexes)[D], int mesh_n[D]);
-    void cuda_load_array_from_device(void *cuda_array, array(double) array, int (*indexes)[D], int mesh_n[D]);
+    void *cuda_create_load_array_to_device(array(double) array);
+    void cuda_load_array_to_device(void *cuda_array, array(double) array);
+    void cuda_load_array_from_device(void *cuda_array, array(double) array);
     void cuda_delete_array(void *cuda_array);
     
     void cuda_calc_residual_vector(void *cuda_res_vect, void *cuda_sol_vect, void *cuda_rhs_vect, int (*indexes)[D], double h[D]);

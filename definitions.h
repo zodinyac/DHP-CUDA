@@ -17,4 +17,8 @@ DEFINE_ENUM(DOWN, UP);
 DEFINE_ENUM(LEFT, RIGHT);
 DEFINE_ENUM(START, END);
 
+#define CALC_IC(indexes) (indexes[X][END] - indexes[X][START] + 2)
+#define CALC_JC(indexes) (indexes[Y][END] - indexes[Y][START] + 2)
+#define CALC_IC_JC_MUL(indexes) (CALC_IC(indexes) * CALC_JC(indexes))
+
 #endif

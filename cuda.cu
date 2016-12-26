@@ -39,30 +39,24 @@ void cuda_finalize()
     cudaFree(cuda_acc);
 }
 
-void *cuda_create_load_array_to_device(array(double) array, int (*indexes)[D], int mesh_n[D])
+void *cuda_create_load_array_to_device(array(double) array)
 {
     void *cuda_array;
     
     cudaMalloc(&cuda_array, array_size(array) * array_item_size(array));
-    cuda_load_array_to_device(cuda_array, array, indexes, mesh_n);
+    cuda_load_array_to_device(cuda_array, array);
     
     return cuda_array;
 }
 
-void cuda_load_array_to_device(void *cuda_array, array(double) array, int (*indexes)[D], int mesh_n[D])
+void cuda_load_array_to_device(void *cuda_array, array(double) array)
 {
-    for (int j = 0; j < CALC_JC(indexes); j++) {
-        int ic = CALC_IC(indexes);
-        cudaMemcpy((double *)cuda_array + j * ic, array + (j + indexes[Y][START] - 1) * mesh_n[X] + (indexes[X][START] - 1), ic * array_item_size(array), cudaMemcpyHostToDevice);
-    }
+    cudaMemcpy(cuda_array, array, array_size(array) * array_item_size(array), cudaMemcpyHostToDevice);
 }
 
-void cuda_load_array_from_device(void *cuda_array, array(double) array, int (*indexes)[D], int mesh_n[D])
+void cuda_load_array_from_device(void *cuda_array, array(double) array)
 {
-    for (int j = 0; j < CALC_JC(indexes) - 2; j++) {
-        int ic = CALC_IC(indexes);
-        cudaMemcpy(array + (j + indexes[Y][START]) * mesh_n[X] + indexes[X][START], (double *)cuda_array + (j + 1) * ic + 1, (ic - 2) * array_item_size(array), cudaMemcpyDeviceToHost);
-    }
+    cudaMemcpy(array, cuda_array, array_size(array) * array_item_size(array), cudaMemcpyDeviceToHost);
 }
 
 void cuda_delete_array(void *cuda_array)

@@ -138,11 +138,6 @@ double F(double x, double y)
 #define grid_coords_first(d) \
     min(coords[d], k[d]) * (n[d] + 1) + max(coords[d] - k[d], 0) * n[d]
 
-// left part of equation -Laplace u
-#define left_part(P, i, j)                                                                                  \
-    ((-(P[mesh_n[X]*(j)+i+1]-P[mesh_n[X]*(j)+i])/h[X]+(P[mesh_n[X]*(j)+i]-P[mesh_n[X]*(j)+i-1])/h[X])/h[X]+ \
-    (-(P[mesh_n[X]*(j+1)+i]-P[mesh_n[X]*(j)+i])/h[Y]+(P[mesh_n[X]*(j)+i]-P[mesh_n[X]*(j-1)+i])/h[Y])/h[Y])
-
 // calculate right part
 void right_part(array(double) rhs_vect, double *h)
 {
@@ -157,6 +152,24 @@ void right_part(array(double) rhs_vect, double *h)
 double boundary_value(double x, double y)
 {
 	return log(1.0 + x * y);
+}
+
+array(double) make_small(array(double) big, array(double) small, int (*indexes)[D])
+{
+    for (int j = 0; j < CALC_JC(indexes); j++) {
+        int ic = CALC_IC(indexes);
+        memcpy(small + j * ic, big + (j + indexes[Y][START] - 1) * mesh_n[X] + (indexes[X][START] - 1), ic * array_item_size(big));
+    }
+    return small;
+}
+
+array(double) make_big(array(double) big, array(double) small, int (*indexes)[D])
+{
+    for (int j = 0; j < CALC_JC(indexes) - 2; j++) {
+        int ic = CALC_IC(indexes);
+        memcpy(big + (j + indexes[Y][START]) * mesh_n[X] + indexes[X][START], small + (j + 1) * ic + 1, (ic - 2) * array_item_size(big));
+    }
+    return big;
 }
 
 // exchange values from/to neighbour processes
@@ -458,12 +471,15 @@ usage_label:
 
     // the solution array
     array(double) sol_vect = array_new(mesh_n[X] * mesh_n[Y], double);
+    array(double) sol_vect_sm = array_new(CALC_IC_JC_MUL(indexes), double);
     
     // the residual array
     array(double) res_vect = array_new(mesh_n[X] * mesh_n[Y], double);
+    array(double) res_vect_sm = array_new(CALC_IC_JC_MUL(indexes), double);
     
     // the right hand side of Puasson equation
     array(double) rhs_vect = array_new(mesh_n[X] * mesh_n[Y], double);
+    array(double) rhs_vect_sm = array_new(CALC_IC_JC_MUL(indexes), double);
     right_part(rhs_vect, h);
     
     // generate mesh
@@ -490,9 +506,9 @@ usage_label:
     double eps = 0.0001;
     
     // copy arrays from host to device
-    void *cuda_res_vect = cuda_create_load_array_to_device(res_vect, indexes, mesh_n);
-    void *cuda_rhs_vect = cuda_create_load_array_to_device(rhs_vect, indexes, mesh_n);
-    void *cuda_sol_vect = cuda_create_load_array_to_device(sol_vect, indexes, mesh_n);
+    void *cuda_res_vect = cuda_create_load_array_to_device(make_small(res_vect, res_vect_sm, indexes));
+    void *cuda_rhs_vect = cuda_create_load_array_to_device(make_small(rhs_vect, rhs_vect_sm, indexes));
+    void *cuda_sol_vect = cuda_create_load_array_to_device(make_small(sol_vect, sol_vect_sm, indexes));
 
     // the residual vector r(k) = Ax(k) - f is calculating...
     cuda_calc_residual_vector(cuda_res_vect, NULL, cuda_rhs_vect, indexes, h);
@@ -522,11 +538,12 @@ usage_label:
     // the vector of A-orthogonal system in CGM
     // g(0) = r(k-1).
 	array(double) basis_vect = res_vect;
+    array(double) basis_vect_sm = res_vect_sm;
     void *cuda_basis_vect = cuda_res_vect;
-    cuda_load_array_from_device(cuda_basis_vect, basis_vect, indexes, mesh_n);
     
     res_vect = array_new(mesh_n[X] * mesh_n[Y], double);
-    cuda_res_vect = cuda_create_load_array_to_device(res_vect, indexes, mesh_n);
+    res_vect_sm = array_new(CALC_IC_JC_MUL(indexes), double);
+    cuda_res_vect = cuda_create_load_array_to_device(make_small(res_vect, res_vect_sm, indexes));
 	
     // CGM iterations begin...
     // sp == (Ar(k-1),r(k-1)) == (Ag(0),g(0)), k=1
@@ -571,19 +588,21 @@ usage_label:
     int counter = 0;
     do {
         // get p(i, j) values from the neighbours of the process
-        cuda_load_array_from_device(cuda_sol_vect, sol_vect, indexes, mesh_n);
+        cuda_load_array_from_device(cuda_sol_vect, sol_vect_sm);
+        make_big(sol_vect, sol_vect_sm, indexes);
         ned.vect = sol_vect;
         neighbors_exchange(ned);
-        cuda_load_array_to_device(cuda_sol_vect, sol_vect, indexes, mesh_n);
+        cuda_load_array_to_device(cuda_sol_vect, make_small(sol_vect, sol_vect_sm, indexes));
 
         // the residual vector r(k) is calculating...
         cuda_calc_residual_vector(cuda_res_vect, cuda_sol_vect, cuda_rhs_vect, indexes, h);
 
         // send r(k) values from neighbours
-        cuda_load_array_from_device(cuda_res_vect, res_vect, indexes, mesh_n);
+        cuda_load_array_from_device(cuda_res_vect, res_vect_sm);
+        make_big(res_vect, res_vect_sm, indexes);
         ned.vect = res_vect;
         neighbors_exchange(ned);
-        cuda_load_array_to_device(cuda_res_vect, res_vect, indexes, mesh_n);
+        cuda_load_array_to_device(cuda_res_vect, make_small(res_vect, res_vect_sm, indexes));
 
         // the value of product (Ar(k),g(k-1)) is calculating...
         alpha = 0.0;
@@ -600,10 +619,11 @@ usage_label:
         ttau = tau * h[X] * h[Y];
         MPI_Allreduce(&ttau, &tau, 1, MPI_DOUBLE, MPI_SUM, COMM_GRID);
         
-        cuda_load_array_from_device(cuda_basis_vect, basis_vect, indexes, mesh_n);
+        cuda_load_array_from_device(cuda_basis_vect, basis_vect_sm);
+        make_big(basis_vect, basis_vect_sm, indexes);
         ned.vect = basis_vect;
         neighbors_exchange(ned);
-        cuda_load_array_to_device(cuda_basis_vect, basis_vect, indexes, mesh_n);
+        cuda_load_array_to_device(cuda_basis_vect, make_small(basis_vect, basis_vect_sm, indexes));
         
         // the value of product sp = (Ag(k),g(k)) is being calculated...
         sp = 0.0;
@@ -636,7 +656,8 @@ usage_label:
 		sol_buf = array_new(mesh_n[X] * mesh_n[Y], double);
 	}
     
-    cuda_load_array_from_device(cuda_sol_vect, sol_vect, indexes, mesh_n);
+    cuda_load_array_from_device(cuda_sol_vect, sol_vect_sm);
+    make_big(sol_vect, sol_vect_sm, indexes);
     make_solution_data msd = {
         sol_vect,
         sol_buf,
@@ -694,10 +715,16 @@ end_label:
             array_delete(&receive[i][j]);
         }
     }
+    
     array_delete(&basis_vect);
     array_delete(&rhs_vect);
     array_delete(&res_vect);
     array_delete(&sol_vect);
+    
+    array_delete(&basis_vect_sm);
+    array_delete(&rhs_vect_sm);
+    array_delete(&res_vect_sm);
+    array_delete(&sol_vect_sm);
     
     cuda_delete_array(res_vect);
     cuda_delete_array(rhs_vect);
